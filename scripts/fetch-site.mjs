@@ -59,6 +59,19 @@ function extractIconSlugs(bundle) {
   return [...new Set(Object.values(map))];
 }
 
+/** 从 bundle 里读出结局 OGP 图映射并生成路径清单 (assets/webp/ogp/ogp_ed_<hash>.webp) */
+function extractEndingOgpPaths(bundle) {
+  const marker = 'function nt(e){var t=tt[e]';
+  const at = bundle.indexOf(marker);
+  if (at < 0) return [];
+  const open = bundle.lastIndexOf('{', at);
+  const close = bundle.indexOf('}', open);
+  const jsonStr = bundle.slice(open, close + 1);
+  const validJson = jsonStr.replace(/([{,])(\d+):/g, '$1"$2":');
+  const map = JSON.parse(validJson);
+  return Object.values(map).map((hash) => `assets/webp/ogp/ogp_ed_${hash}.webp`);
+}
+
 /** 从任意文本里刮出 assets/... 静态资源路径 */
 function scrapeAssetPaths(text) {
   const re = /assets\/[A-Za-z0-9_./-]+\.(?:webp|mp3|svg|png|jpe?g|ico|json|css|js|txt)/g;
@@ -97,16 +110,28 @@ async function exists(p) {
   }
 }
 
-async function download(relPath) {
+async function download(relPath, maxRetries = 3) {
   const dest = join(MIRROR, relPath);
   if (!FORCE && (await exists(dest))) return { relPath, status: 'skip' };
 
-  const res = await fetch(new URL(relPath, BASE), { headers: { 'User-Agent': UA, Referer: BASE } });
-  if (!res.ok) return { relPath, status: `HTTP ${res.status}` };
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(new URL(relPath, BASE), {
+        headers: { 'User-Agent': UA, Referer: BASE },
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) return { relPath, status: `HTTP ${res.status}` };
 
-  await mkdir(dirname(dest), { recursive: true });
-  await writeFile(dest, Buffer.from(await res.arrayBuffer()));
-  return { relPath, status: 'ok' };
+      await mkdir(dirname(dest), { recursive: true });
+      await writeFile(dest, Buffer.from(await res.arrayBuffer()));
+      return { relPath, status: 'ok' };
+    } catch (err) {
+      if (attempt === maxRetries) {
+        return { relPath, status: err.message || 'fetch failed' };
+      }
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+    }
+  }
 }
 
 async function downloadAll(paths, label) {
@@ -144,6 +169,7 @@ const iconPaths = slugs.flatMap((s) => [
   `${ICON_BASE}/icon_${s}.webp`,
   `${ICON_BASE}/icon_${s}_silhouette.webp`,
 ]);
+const endingOgpPaths = extractEndingOgpPaths(bundle);
 
 const scraped = [
   ...scrapeAssetPaths(html),
@@ -152,6 +178,7 @@ const scraped = [
   ...scrapeCssUrls(css, 'assets/css/app.css'),
   ...EXTRA,
   ...iconPaths,
+  ...endingOgpPaths,
 ];
 
 const all = [...new Set([...scraped, ...spVariants(scraped)])]
@@ -159,7 +186,7 @@ const all = [...new Set([...scraped, ...spVariants(scraped)])]
   .sort();
 
 console.log(
-  `推导出 ${all.length} 个资源（角色头像 ${slugs.length}×2，含窄屏 sp 立绘与 CSS 背景图）`,
+  `推导出 ${all.length} 个资源（角色头像 ${slugs.length}×2，结局 OGP 图 ${endingOgpPaths.length} 张，含窄屏 sp 立绘与 CSS 背景图）`,
 );
 failures.push(...(await downloadAll(all, '资源')));
 

@@ -1,6 +1,6 @@
 {
   "base": "https://pjsekai.sega.jp/ayakashi-yokotyo/",
-  "fetchedAt": "2026-08-18T10:57:08.846Z",
+  "fetchedAt": "2026-08-18T12:29:23.696Z",
   "files": [
     "index.html",
     "assets/css/app.css",
@@ -237,6 +237,33 @@
     "assets/webp/index/deco_kv_lantern.webp",
     "assets/webp/index/deco_kv_smoke.webp",
     "assets/webp/index/img_kv_character.webp",
-    "assets/webp/ogp/ogp.webp"
+    "assets/webp/ogp/ogp.webp",
+    "assets/webp/ogp/ogp_ed_2xa704w1rg.webp",
+    "assets/webp/ogp/ogp_ed_33qqpx68gd.webp",
+    "assets/webp/ogp/ogp_ed_33xuc82rbg.webp",
+    "assets/webp/ogp/ogp_ed_3ti4nagnko.webp",
+    "assets/webp/ogp/ogp_ed_5eo8j2858h.webp",
+    "assets/webp/ogp/ogp_ed_6h6nvc3hbr.webp",
+    "assets/webp/ogp/ogp_ed_7l6jbty64m.webp",
+    "assets/webp/ogp/ogp_ed_by716ictuq.webp",
+    "assets/webp/ogp/ogp_ed_f30j5awesj.webp",
+    "assets/webp/ogp/ogp_ed_faktclpor6.webp",
+    "assets/webp/ogp/ogp_ed_gybv741t4t.webp",
+    "assets/webp/ogp/ogp_ed_hvhymorj1j.webp",
+    "assets/webp/ogp/ogp_ed_kawyite2pu.webp",
+    "assets/webp/ogp/ogp_ed_keton0sxgc.webp",
+    "assets/webp/ogp/ogp_ed_lgdl8bc11u.webp",
+    "assets/webp/ogp/ogp_ed_ll63q5mqfn.webp",
+    "assets/webp/ogp/ogp_ed_nmcyirllc8.webp",
+    "assets/webp/ogp/ogp_ed_owbf2b8lab.webp",
+    "assets/webp/ogp/ogp_ed_pfqmpf8pi6.webp",
+    "assets/webp/ogp/ogp_ed_q1pkc26nro.webp",
+    "assets/webp/ogp/ogp_ed_qf8t1p1nbo.webp",
+    "assets/webp/ogp/ogp_ed_rgftunt2dn.webp",
+    "assets/webp/ogp/ogp_ed_rhc28v4mrr.webp",
+    "assets/webp/ogp/ogp_ed_sy1u0418ne.webp",
+    "assets/webp/ogp/ogp_ed_ts88dtw143.webp",
+    "assets/webp/ogp/ogp_ed_ynccit1w6f.webp",
+    "assets/webp/ogp/ogp_ed_yrv45li2a5.webp"
   ]
 }

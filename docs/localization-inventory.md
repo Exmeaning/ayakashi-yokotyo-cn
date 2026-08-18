@@ -71,12 +71,13 @@
 | `webp/clear/txt_clear.webp` | （淡色装饰文字） | 通关画面背景文字 |
 | `webp/clear/btn_post.webp` | X 結果をポスト！ | 通关画面分享按钮 |
 | `webp/ogp/ogp.webp` | logo + あやかし事件を解決して夏祭りを成功させよう！ | 社交分享缩略图 |
+| `webp/ogp/ogp_ed_*.webp` (共 27 张) | 各结局标题与角色卡片图 | 通关结算画面卡片与各结局分享图 |
 
 **不要动**的图片：`logo_pjsekai` / `logo_sega` / `logo_colorfulpalette` / `logo_crypton` /
 `logo_piapro` / `icon_app` 是品牌标识；`img_app-store.webp` 与 `img_google-play.webp`
 是应用商店官方徽章，若要本地化应换成官方提供的中文版徽章，而不是自己重绘。
 
-其余图片（角色立绘、场景背景、头像、装饰、SVG 图标）不含文字，无需处理。
+其余图片（角色立绘、场景背景、头像、装饰、SVG 图标、27 张结局 OGP 卡片原画）由抓取脚本自动镜像，无需单独处理。
 
 ## 字体
 

@@ -182,6 +182,25 @@ try {
   notes.push(`标题: ${home.title}`);
   notes.push(`首页说明: ${home.description.replace(/\s+/g, ' ')}`);
 
+  // --- 免责声明检查
+  const disclaimerCheck = await evaluate(`(() => {
+    const el = document.getElementById('site-disclaimer');
+    if (!el) return { found: false, hasContent: false };
+    const text = el.textContent || '';
+    const hasContent = text.includes('SEGA') && text.includes('Colorful Palette') && text.includes('AI') && text.includes('pjsk.moe');
+    el.classList.add('is-dismissed');
+    el.remove();
+    return { found: true, hasContent };
+  })()`);
+
+  if (!disclaimerCheck.found) {
+    failures.push('未找到进入前免责声明弹窗（#site-disclaimer）');
+  } else if (!disclaimerCheck.hasContent) {
+    failures.push('免责声明弹窗缺少必要内容（SEGA/Colorful Palette 版权、AI 汉化或 pjsk.moe 鸣谢）');
+  } else {
+    notes.push('免责声明: 已包含 SEGA / Colorful Palette 版权归属、AI 汉化说明与 pjsk.moe 致谢');
+  }
+
   // --- 点开始，然后反复推进对话
   const started = await evaluate(`(() => {
     const btn = document.querySelector('.js-scene-button[data-scene="scene1"]')
@@ -265,6 +284,10 @@ try {
   // 所以只翻了人名、漏翻字典键的话，这一页会整屏变成问号图。
   await evaluate(`location.reload()`);
   await sleep(3000);
+  await evaluate(`(() => {
+    const el = document.getElementById('site-disclaimer');
+    if (el) { el.classList.add('is-dismissed'); el.remove(); }
+  })()`);
   const openedList = await evaluate(`(() => {
     const btn = document.querySelector('.p-home__content-endinglist-button');
     if (!btn) return false;

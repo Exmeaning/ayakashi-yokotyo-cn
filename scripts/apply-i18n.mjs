@@ -41,18 +41,33 @@ const table = JSON.parse(await readFile(join(ROOT, 'i18n/zh-Hans.json'), 'utf8')
 const zh = new Map();
 let totalEntries = 0;
 const untranslated = [];
+
+/** 采用日中双语（日文小字在上，中文在下）的文本分类 */
+const BILINGUAL_KINDS = new Set(['dialogue', 'choice', 'ending-title', 'ending-hint']);
+
 for (const [kind, group] of Object.entries(table)) {
   if (kind.startsWith('_') || typeof group !== 'object') continue;
   for (const [ja, value] of Object.entries(group)) {
     totalEntries++;
-    if (typeof value === 'string' && value.trim()) zh.set(ja, value);
-    else untranslated.push({ kind, ja });
+    if (typeof value === 'string' && value.trim()) {
+      if (BILINGUAL_KINDS.has(kind)) {
+        // 合成为日中双语格式：{ja}日文原文{/ja}中文译文
+        zh.set(ja, `{ja}${ja}{/ja}${value}`);
+      } else {
+        zh.set(ja, value);
+      }
+    } else {
+      untranslated.push({ kind, ja });
+    }
   }
 }
 
 /** 译文里必须保留的东西：{占位符} 与 HTML 标签 */
 const warnings = [];
-for (const [ja, value] of zh) {
+for (const [ja, fullValue] of zh) {
+  const value = fullValue.startsWith('{ja}')
+    ? fullValue.slice(fullValue.indexOf('{/ja}') + 5)
+    : fullValue;
   for (const ph of ja.match(/\{[A-Za-z_][A-Za-z0-9_]*\}/g) ?? []) {
     if (!value.includes(ph)) warnings.push(`占位符 ${ph} 在译文中丢失: ${ja.slice(0, 30)}`);
   }
@@ -80,7 +95,72 @@ const jsString = (s) =>
   JSON.stringify(s).split(LINE_SEP).join('\\u2028').split(PARA_SEP).join('\\u2029');
 
 const bundlePath = 'assets/js/common/app.bundle.js';
-const bundleSrc = await readFile(join(MIRROR, bundlePath), 'utf8');
+let bundleSrc = await readFile(join(MIRROR, bundlePath), 'utf8');
+
+/**
+ * 注入双语渲染补丁函数：
+ * 1. Sn: 分词器支持 {ja}...{/ja} 标记
+ * 2. An: DOM 渲染器输出 .c-bilingual-ja 与 .c-bilingual-zh 双层结构
+ * 3. En: 打字机动画在中文逐字播放的同时，日文预先/同步在上方显示
+ * 4. ha: Backlog 列表项渲染日中双语
+ * 5. choice: 分歧选项列表项渲染日中双语
+ * 6. ending: 结局列表项渲染日中双语
+ */
+function patchCode(src, target, replacement, label) {
+  if (!src.includes(target)) {
+    throw new Error(`Bundle patch failed: "${label}" target not found`);
+  }
+  return src.replace(target, replacement);
+}
+
+// 1. Sn 分词器补丁
+bundleSrc = patchCode(
+  bundleSrc,
+  'function Sn(e){for(var t=[],n=0,a=!1,r=String(e||"");n<r.length;)if(M()(r).call(r,"{p}",n))t.push({type:"pause"}),n+=3;else if(M()(r).call(r,"{em}",n))a=!0,n+=4;else if(M()(r).call(r,"{/em}",n))a=!1,n+=5;else{var c=U()(G()(r).call(r,n));n+=c.length,t.push({type:"char",value:c,em:a})}return t}',
+  'function Sn(e){for(var t=[],n=0,a=!1,j=!1,r=String(e||"");n<r.length;)if(M()(r).call(r,"{ja}",n))j=!0,n+=4;else if(M()(r).call(r,"{/ja}",n))j=!1,n+=5;else if(M()(r).call(r,"{p}",n))t.push({type:"pause",ja:j}),n+=3;else if(M()(r).call(r,"{em}",n))a=!0,n+=4;else if(M()(r).call(r,"{/em}",n))a=!1,n+=5;else{var c=U()(G()(r).call(r,n));n+=c.length,t.push({type:"char",value:c,em:a,ja:j})}return t}',
+  'Sn (tokenizer)',
+);
+
+// 2. An 渲染器补丁
+bundleSrc = patchCode(
+  bundleSrc,
+  'function An(e,t){e.replaceChildren();var n="",a=null,r=function(){if(n){if(a){var t=document.createElement("span");t.className="c-in-em",t.textContent=n,e.append(t)}else e.append(document.createTextNode(n));n=""}};T()(t).call(t,(function(e){"char"===e.type&&(a!==e.em&&(r(),a=e.em),n+=e.value)})),r()}',
+  'function An(e,t){e.replaceChildren();var jW=document.createElement("div");jW.className="c-bilingual-ja";var zW=document.createElement("div");zW.className="c-bilingual-zh";var hasJa=!1,jT="",zT="",jE=null,zE=null;function flJ(){if(jT){if(jE){var el=document.createElement("span");el.className="c-in-em",el.textContent=jT,jW.append(el)}else jW.append(document.createTextNode(jT));jT=""}}function flZ(){if(zT){if(zE){var el=document.createElement("span");el.className="c-in-em",el.textContent=zT,zW.append(el)}else zW.append(document.createTextNode(zT));zT=""}}T()(t).call(t,(function(it){if("char"===it.type){if(it.ja){hasJa=!0,jE!==it.em&&(flJ(),jE=it.em),jT+=it.value}else{zE!==it.em&&(flZ(),zE=it.em),zT+=it.value}}})),flJ(),flZ(),hasJa?e.append(jW,zW):e.append(zW)}',
+  'An (renderer)',
+);
+
+// 3. En 打字机补丁
+bundleSrc = patchCode(
+  bundleSrc,
+  'function En(e){var t=rn(".c-content__content-dialogue-text"),n=rn(".c-content__content-dialogue-icon");if(t){kn(),Ht=e,Jt=!0,t.replaceChildren(),null==n||n.classList.remove("is-visible");var a=Sn(e),r=[],c=0,s=function(){if(c>=a.length)return kn(),Jt=!1,void(null==n||n.classList.add("is-visible"));var e=a[c];c+=1,"pause"!==e.type?(r.push(e),An(t,r),Gt=I()(s,25)):Gt=I()(s,450)};Gt=I()(s,25)}}',
+  'function En(e){var t=rn(".c-content__content-dialogue-text"),n=rn(".c-content__content-dialogue-icon");if(t){kn(),Ht=e,Jt=!0,t.replaceChildren(),null==n||n.classList.remove("is-visible");var a=Sn(e),jToks=a.filter(function(x){return x.ja}),zToks=a.filter(function(x){return!x.ja}),r=[].concat(jToks),c=0;An(t,r);var s=function(){if(c>=zToks.length)return kn(),Jt=!1,void(null==n||n.classList.add("is-visible"));var e=zToks[c];c+=1,"pause"!==e.type?(r.push(e),An(t,r),Gt=I()(s,25)):Gt=I()(s,450)};Gt=I()(s,25)}}',
+  'En (typewriter)',
+);
+
+// 4. Backlog 双语渲染补丁
+bundleSrc = patchCode(
+  bundleSrc,
+  'var o=document.createElement("p");o.className="c-in-dialogue",o.textContent=t.text,a.append(r,o),e.append(a)',
+  'var o=document.createElement("p");o.className="c-in-dialogue";var bm=/^\\{ja\\}([\\s\\S]*?)\\{\\/ja\\}([\\s\\S]*)$/.exec(t.text);if(bm){var jB=document.createElement("div");jB.className="c-bilingual-ja",jB.textContent=bm[1];var zB=document.createElement("div");zB.className="c-bilingual-zh",zB.textContent=bm[2];o.append(jB,zB)}else{o.textContent=t.text}a.append(r,o),e.append(a)',
+  'ha (backlog)',
+);
+
+// 5. Choice 选项双语渲染补丁
+bundleSrc = patchCode(
+  bundleSrc,
+  'c.className="c-choice__content-list-item-text",c.textContent=e.text,n.append(r,c),t.append(n),a.append(t)',
+  'c.className="c-choice__content-list-item-text";var chm=/^\\{ja\\}([\\s\\S]*?)\\{\\/ja\\}([\\s\\S]*)$/.exec(e.text);if(chm){var jC=document.createElement("span");jC.className="c-choice-ja",jC.textContent=chm[1];var zC=document.createElement("span");zC.className="c-choice-zh",zC.textContent=chm[2];c.append(jC,zC)}else{c.textContent=e.text}n.append(r,c),t.append(n),a.append(t)',
+  'choice (options)',
+);
+
+// 6. Ending 结局列表双语渲染补丁
+bundleSrc = patchCode(
+  bundleSrc,
+  'o&&(o.textContent=c?r.title:"???"),u&&(u.textContent=s?"ヒント：？？？":r.hint,u.classList.toggle("is-hidden",c))',
+  '(function(){if(o){if(c&&r.title){var otm=/^\\{ja\\}([\\s\\S]*?)\\{\\/ja\\}([\\s\\S]*)$/.exec(r.title);if(otm){o.replaceChildren();var jO=document.createElement("span");jO.className="c-ending-ja",jO.textContent=otm[1];var zO=document.createElement("span");zO.className="c-ending-zh",zO.textContent=otm[2];o.append(jO,zO)}else o.textContent=r.title}else o.textContent="???"}if(u){var hStr=s?"ヒント：？？？":r.hint;if(hStr){var uhm=/^\\{ja\\}([\\s\\S]*?)\\{\\/ja\\}([\\s\\S]*)$/.exec(hStr);if(uhm){u.replaceChildren();var jU=document.createElement("span");jU.className="c-hint-ja",jU.textContent=uhm[1];var zU=document.createElement("span");zU.className="c-hint-zh",zU.textContent=uhm[2];u.append(jU,zU)}else u.textContent=hStr}u.classList.toggle("is-hidden",c)}})()',
+  'ending (titles & hints)',
+);
+
 const ast = acorn.parse(bundleSrc, { ecmaVersion: 'latest', sourceType: 'script' });
 
 /** @type {{start:number,end:number,to:string}[]} */
@@ -109,6 +189,7 @@ for (const e of edits) {
   cursor = e.end;
 }
 out += bundleSrc.slice(cursor);
+
 await writeFile(join(DIST, bundlePath), out);
 
 // ---------------------------------------------------------------- index.html
@@ -132,7 +213,11 @@ function replaceTextNodes(src) {
     if (!replacement) continue;
     const at = m.index + 1; // 跳过 '>'
     const offset = raw.indexOf(text);
-    result += src.slice(last, at + offset) + escapeText(replacement);
+    const biMatch = /^\{ja\}([\s\S]*?)\{\/ja\}([\s\S]*)$/.exec(replacement);
+    const formatted = biMatch
+      ? `<span class="c-bilingual-ja">${escapeText(biMatch[1])}</span><span class="c-bilingual-zh">${escapeText(biMatch[2])}</span>`
+      : escapeText(replacement);
+    result += src.slice(last, at + offset) + formatted;
     last = at + offset + text.length;
     hits++;
   }
@@ -201,12 +286,105 @@ if (SITE_URL) {
   );
 }
 
-// 追加中文字体覆盖
+// 追加中文字体覆盖与免责声明样式
 const ZH_CSS = 'assets/css/zh-cn.css';
 html = html.replace(
   /(<link rel="stylesheet" href="\.\/assets\/css\/app\.css[^>]*>)/i,
   `$1\n    <link rel="stylesheet" href="./${ZH_CSS}">`,
 );
+
+// 注入进入前免责声明与致谢弹窗
+const DISCLAIMER_HTML = `
+    <!-- 进入前免责声明与致谢 -->
+    <div class="c-disclaimer js-disclaimer" id="site-disclaimer" role="dialog" aria-modal="true" aria-labelledby="disclaimer-title">
+      <div class="c-disclaimer__backdrop"></div>
+      <div class="c-disclaimer__inner">
+        <div class="c-disclaimer__dialog">
+          <div class="c-disclaimer__head">
+            <span class="c-disclaimer__head-sub">PROJECT SEKAI · あやかし横丁</span>
+            <h2 class="c-disclaimer__head-title" id="disclaimer-title">进入前提示与免责声明</h2>
+          </div>
+          <div class="c-disclaimer__content">
+            <section class="c-disclaimer__section">
+              <div class="c-disclaimer__section-title">
+                <span class="c-disclaimer__badge">版权声明</span>
+                <span>游戏版权及素材归属</span>
+              </div>
+              <p class="c-disclaimer__section-text">
+                本项目游戏版权、素材等所有权均归 <strong>SEGA / Colorful Palette</strong> 所有。本站仅供个人学习交流与非商业研究，严禁用于任何商业用途。
+              </p>
+            </section>
+
+            <section class="c-disclaimer__section">
+              <div class="c-disclaimer__section-title">
+                <span class="c-disclaimer__badge">汉化说明</span>
+                <span>AI 生成技术提示</span>
+              </div>
+              <p class="c-disclaimer__section-text">
+                本站汉化使用 <strong>AI 生成技术</strong> 辅助翻译与润色，可能不是很准确，敬请各位玩家理解与包涵。
+              </p>
+            </section>
+
+            <section class="c-disclaimer__section">
+              <div class="c-disclaimer__section-title">
+                <span class="c-disclaimer__badge">支持与致谢</span>
+                <span>特别鸣谢</span>
+              </div>
+              <p class="c-disclaimer__section-text">
+                感谢 <strong>moesekai</strong> (<a href="https://pjsk.moe" target="_blank" rel="noopener noreferrer" class="c-disclaimer__link">pjsk.moe</a>) 的大力支持！
+              </p>
+            </section>
+          </div>
+
+          <div class="c-disclaimer__foot">
+            <div class="c-disclaimer__countdown-track">
+              <div class="c-disclaimer__countdown-bar js-disclaimer-bar"></div>
+            </div>
+            <button class="c-disclaimer__btn js-disclaimer-btn" type="button" disabled>
+              <span class="c-disclaimer__btn-text js-disclaimer-btn-text">请仔细阅读 (10s)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      (function() {
+        var disclaimer = document.getElementById('site-disclaimer');
+        if (!disclaimer) return;
+        var btn = disclaimer.querySelector('.js-disclaimer-btn');
+        var btnText = disclaimer.querySelector('.js-disclaimer-btn-text');
+        var bar = disclaimer.querySelector('.js-disclaimer-bar');
+        var duration = 10;
+        var remaining = duration;
+
+        function tick() {
+          if (remaining > 0) {
+            btn.disabled = true;
+            if (btnText) btnText.textContent = '请仔细阅读 (' + remaining + 's)';
+            if (bar) bar.style.width = (((duration - remaining) / duration) * 100) + '%';
+            remaining--;
+            setTimeout(tick, 1000);
+          } else {
+            btn.disabled = false;
+            disclaimer.classList.add('is-ready');
+            if (btnText) btnText.textContent = '我已阅读并知悉 · 进入游戏';
+            if (bar) bar.style.width = '100%';
+          }
+        }
+
+        btn.addEventListener('click', function() {
+          if (btn.disabled) return;
+          disclaimer.classList.add('is-dismissed');
+          setTimeout(function() {
+            disclaimer.remove();
+          }, 400);
+        });
+
+        tick();
+      })();
+    </script>`;
+
+html = html.replace('</body>', `${DISCLAIMER_HTML}\n  </body>`);
 
 await writeFile(join(DIST, 'index.html'), html);
 
@@ -233,6 +411,332 @@ select {
 .c-content__text,
 .p-home__description-text {
   letter-spacing: 0.02em;
+}
+
+/* ---------------------------------------------------------------- 日中双语排版样式 */
+.c-content__content-dialogue {
+  min-height: calc(264 * var(--vw-scale));
+  height: auto;
+  max-height: calc(380 * var(--vw-scale));
+  padding: calc(48 * var(--vw-scale)) calc(48 * var(--vw-scale)) calc(40 * var(--vw-scale));
+}
+
+.c-bilingual-ja {
+  display: block;
+  font-size: calc(18 * var(--vw-scale));
+  line-height: 1.35;
+  color: #7a0e15;
+  opacity: 0.85;
+  margin-bottom: calc(6 * var(--vw-scale));
+  white-space: pre-wrap;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.c-bilingual-zh {
+  display: block;
+  font-size: calc(28 * var(--vw-scale));
+  line-height: 1.55;
+  color: var(--c-black, #142E5A);
+  font-weight: 600;
+  white-space: pre-wrap;
+  letter-spacing: 0.03em;
+}
+
+.c-bilingual-zh .c-in-em {
+  font-size: 1.2em;
+  font-weight: 700;
+  color: var(--c-red, #D93843);
+}
+
+/* 选项双语排版 */
+.c-choice__content-list-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4 * var(--vw-scale));
+}
+
+.c-choice-ja {
+  display: block;
+  font-size: calc(18 * var(--vw-scale));
+  line-height: 1.3;
+  color: #7a0e15;
+  opacity: 0.85;
+  white-space: pre-wrap;
+}
+
+.c-choice-zh {
+  display: block;
+  font-size: calc(26 * var(--vw-scale));
+  line-height: 1.45;
+  font-weight: 600;
+  color: var(--c-black, #142E5A);
+  white-space: pre-wrap;
+}
+
+/* Backlog 历史记录双语排版 */
+.c-backlog__content-backlog-list-item .c-bilingual-ja {
+  font-size: calc(18 * var(--vw-scale));
+  color: #7a0e15;
+  opacity: 0.85;
+  margin-bottom: calc(4 * var(--vw-scale));
+}
+
+.c-backlog__content-backlog-list-item .c-bilingual-zh {
+  font-size: calc(24 * var(--vw-scale));
+  color: #3f2a1d;
+  line-height: 1.5;
+}
+
+/* 结局一览双语 */
+.c-ending-ja,
+.c-hint-ja {
+  display: block;
+  font-size: calc(16 * var(--vw-scale));
+  line-height: 1.3;
+  color: #7a0e15;
+  opacity: 0.85;
+}
+
+.c-ending-zh,
+.c-hint-zh {
+  display: block;
+}
+
+/* ---------------------------------------------------------------- 进入前免责声明弹窗 */
+.c-disclaimer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-content: center;
+  width: 100vw;
+  height: 100svh;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.35s ease, visibility 0.35s linear;
+}
+
+.c-disclaimer.is-dismissed {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.c-disclaimer__backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--c-black, #142E5A) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.c-disclaimer__inner {
+  position: relative;
+  z-index: 2;
+  margin: 0 auto;
+  width: min(calc(708 * var(--vw-scale)), 92vw);
+  max-height: 92svh;
+  display: flex;
+  flex-direction: column;
+}
+
+.c-disclaimer__dialog {
+  display: flex;
+  flex-direction: column;
+  max-height: 92svh;
+  background: var(--c-white, #FFFBF5);
+  border: solid calc(4 * var(--vw-scale)) var(--c-brown, #7A0E15);
+  border-radius: calc(24 * var(--vw-scale));
+  box-shadow:
+    0 calc(8 * var(--vw-scale)) calc(30 * var(--vw-scale)) rgba(0, 0, 0, 0.45),
+    calc(4 * var(--vw-scale)) calc(4 * var(--vw-scale)) 0 #fffaf3 inset;
+  overflow: hidden;
+}
+
+.c-disclaimer__head {
+  padding: calc(28 * var(--vw-scale)) calc(32 * var(--vw-scale)) calc(20 * var(--vw-scale));
+  background: linear-gradient(135deg, #7a0e15 0%, #d93843 100%);
+  color: var(--c-white, #FFFBF5);
+  text-align: center;
+  border-bottom: solid calc(3 * var(--vw-scale)) var(--c-brown, #7A0E15);
+}
+
+.c-disclaimer__head-sub {
+  display: inline-block;
+  font-size: calc(18 * var(--vw-scale));
+  letter-spacing: 0.12em;
+  font-weight: 700;
+  color: var(--c-yellow, #FFC248);
+  margin-bottom: calc(4 * var(--vw-scale));
+}
+
+.c-disclaimer__head-title {
+  margin: 0;
+  font-size: calc(34 * var(--vw-scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.3;
+  color: var(--c-white, #FFFBF5);
+  text-shadow: 0 calc(2 * var(--vw-scale)) calc(4 * var(--vw-scale)) rgba(0, 0, 0, 0.35);
+}
+
+.c-disclaimer__content {
+  overflow-y: auto;
+  padding: calc(28 * var(--vw-scale)) calc(32 * var(--vw-scale));
+  display: flex;
+  flex-direction: column;
+  gap: calc(20 * var(--vw-scale));
+  -webkit-overflow-scrolling: touch;
+}
+
+.c-disclaimer__content::-webkit-scrollbar {
+  width: calc(6 * var(--vw-scale));
+}
+.c-disclaimer__content::-webkit-scrollbar-thumb {
+  background: #d0b394;
+  border-radius: calc(10 * var(--vw-scale));
+}
+
+.c-disclaimer__section {
+  padding: calc(20 * var(--vw-scale)) calc(24 * var(--vw-scale));
+  background: #fbf5eb;
+  border: solid calc(2 * var(--vw-scale)) var(--c-beige, #E7D5BD);
+  border-radius: calc(16 * var(--vw-scale));
+  box-shadow: 0 calc(2 * var(--vw-scale)) calc(6 * var(--vw-scale)) rgba(0, 0, 0, 0.04);
+}
+
+.c-disclaimer__section-title {
+  display: flex;
+  align-items: center;
+  gap: calc(12 * var(--vw-scale));
+  font-size: calc(24 * var(--vw-scale));
+  font-weight: 700;
+  color: var(--c-brown, #7A0E15);
+  margin-bottom: calc(10 * var(--vw-scale));
+}
+
+.c-disclaimer__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(2 * var(--vw-scale)) calc(12 * var(--vw-scale));
+  font-size: calc(16 * var(--vw-scale));
+  font-weight: 700;
+  color: var(--c-white, #FFFBF5);
+  background: var(--c-red, #D93843);
+  border-radius: 999em;
+  letter-spacing: 0.04em;
+}
+
+.c-disclaimer__section-text {
+  font-size: calc(21 * var(--vw-scale));
+  line-height: 1.65;
+  color: #3f2a1d;
+  letter-spacing: 0.03em;
+  margin: 0;
+}
+
+.c-disclaimer__section-text strong {
+  font-weight: 700;
+  color: var(--c-brown, #7A0E15);
+}
+
+.c-disclaimer__link {
+  color: var(--c-red, #D93843);
+  text-decoration: underline;
+  font-weight: 700;
+  text-underline-offset: calc(3 * var(--vw-scale));
+  transition: opacity 0.2s ease;
+}
+
+.c-disclaimer__link:hover {
+  opacity: 0.75;
+}
+
+.c-disclaimer__foot {
+  padding: calc(18 * var(--vw-scale)) calc(32 * var(--vw-scale)) calc(28 * var(--vw-scale));
+  background: #fdfaf6;
+  border-top: solid calc(2 * var(--vw-scale)) var(--c-beige, #E7D5BD);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(14 * var(--vw-scale));
+}
+
+.c-disclaimer__countdown-track {
+  width: 100%;
+  height: calc(8 * var(--vw-scale));
+  background: var(--c-beige, #E7D5BD);
+  border-radius: 999em;
+  overflow: hidden;
+}
+
+.c-disclaimer__countdown-bar {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--c-yellow, #FFC248) 0%, var(--c-red, #D93843) 100%);
+  border-radius: 999em;
+  transition: width 0.95s linear;
+}
+
+.c-disclaimer__btn {
+  display: grid;
+  place-content: center;
+  position: relative;
+  width: min(calc(520 * var(--vw-scale)), 100%);
+  height: calc(88 * var(--vw-scale));
+  border: solid calc(4 * var(--vw-scale)) var(--c-brown, #7A0E15);
+  border-radius: 999em;
+  background-color: var(--c-beige, #E7D5BD);
+  box-shadow:
+    calc(4 * var(--vw-scale)) calc(4 * var(--vw-scale)) 0 #fffaf3 inset,
+    calc(6 * var(--vw-scale)) calc(6 * var(--vw-scale)) 0 color-mix(in srgb, #000 14%, transparent);
+  cursor: not-allowed;
+  opacity: 0.65;
+  filter: grayscale(0.6);
+  transition: all 0.3s ease;
+}
+
+.c-disclaimer.is-ready .c-disclaimer__btn {
+  background-color: var(--c-red, #D93843);
+  cursor: pointer;
+  opacity: 1;
+  filter: none;
+  animation: disclaimer-btn-pulse 2s infinite;
+}
+
+@keyframes disclaimer-btn-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow:
+      calc(4 * var(--vw-scale)) calc(4 * var(--vw-scale)) 0 #fffaf3 inset,
+      0 0 calc(12 * var(--vw-scale)) rgba(217, 56, 67, 0.45);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow:
+      calc(4 * var(--vw-scale)) calc(4 * var(--vw-scale)) 0 #fffaf3 inset,
+      0 0 calc(22 * var(--vw-scale)) rgba(217, 56, 67, 0.7);
+  }
+}
+
+@media (any-hover: hover) {
+  .c-disclaimer.is-ready .c-disclaimer__btn:hover {
+    transform: scale(1.04);
+  }
+}
+
+.c-disclaimer__btn-text {
+  font-weight: 700;
+  font-size: calc(28 * var(--vw-scale));
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: #7A0E15;
+}
+
+.c-disclaimer.is-ready .c-disclaimer__btn-text {
+  color: var(--c-white, #FFFBF5);
 }
 `,
 );

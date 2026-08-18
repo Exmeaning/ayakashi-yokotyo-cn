@@ -1,0 +1,19 @@
+{
+  "name": "ayakashi-yokotyo-cn",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "プロセカ「あやかし横丁」特設サイト的离线镜像与简体中文汉化工程",
+  "scripts": {
+    "fetch": "node scripts/fetch-site.mjs",
+    "extract": "node scripts/extract-strings.mjs",
+    "build": "node scripts/apply-i18n.mjs",
+    "serve": "node scripts/serve.mjs",
+    "dev": "node scripts/apply-i18n.mjs && node scripts/serve.mjs",
+    "test": "node scripts/smoke-test.mjs"
+  },
+  "devDependencies": {
+    "acorn": "^8.14.0",
+    "acorn-walk": "^8.3.4"
+  }
+}

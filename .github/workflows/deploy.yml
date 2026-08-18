@@ -1,0 +1,55 @@
+name: Build & Deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pages 部署需要这几个权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时刻只跑一个部署，后来的排队而不是打断正在发布的那次
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 必须放在构建之前：base_url 要拿来写 og:image / canonical 的绝对地址
+      - uses: actions/configure-pages@v5
+        id: pages
+
+      - name: 构建汉化产物
+        run: node scripts/apply-i18n.mjs --site-url "${{ steps.pages.outputs.base_url }}"
+
+      # GitHub Pages 默认过一遍 Jekyll，会吞掉下划线开头的文件；放个 .nojekyll 关掉
+      - name: 关闭 Jekyll 处理
+        run: touch dist/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

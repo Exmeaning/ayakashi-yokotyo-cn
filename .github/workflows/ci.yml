@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 抽取结果应当与仓库里已提交的一致。不一致意味着有人手改了 source.ja.json，
+      # 或者 mirror/ 变了却没重新抽取 —— 两种都该在合并前拦下来。
+      - name: 校验抽取表是最新的
+        run: |
+          node scripts/extract-strings.mjs
+          git diff --exit-code i18n/source.ja.json
+
+      - name: 构建
+        run: node scripts/apply-i18n.mjs
+
+      # ubuntu-latest 镜像自带 google-chrome，冒烟测试直接能跑
+      - name: 起本地服务器
+        run: |
+          node scripts/serve.mjs --port 5173 &
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:5173/ >/dev/null && break
+            sleep 0.5
+          done
+
+      - name: 冒烟测试
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+        run: node scripts/smoke-test.mjs --shot smoke.png
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-screenshot
+          path: smoke.png
+          if-no-files-found: ignore
